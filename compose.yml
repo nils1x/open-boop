@@ -1,0 +1,23 @@
+services:
+  boop:
+    build: .
+    container_name: boop-agent
+    restart: unless-stopped
+    ports:
+      - "3456:3456"
+    env_file: .env.local
+    # For TrueNAS production, copy .env.local contents into the app's
+    # environment variables in the TrueNAS UI instead.
+    # Make sure CONVEX_URL points to your production deployment
+    # (from `npx convex deploy`), not localhost.
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+    networks:
+      - boop-net
+
+volumes:
+  huggingface_cache:
+
+networks:
+  boop-net:
+    driver: bridge

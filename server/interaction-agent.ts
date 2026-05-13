@@ -1,0 +1,331 @@
+import { generateResponse, type ToolMap } from "./llm.js";
+import { z } from "zod";
+import { api } from "../convex/_generated/api.js";
+import { convex } from "./convex-client.js";
+import { createMemoryTools } from "./memory/tools.js";
+import { extractAndStore } from "./memory/extract.js";
+import { availableIntegrations, availableSkills, spawnExecutionAgent } from "./execution-agent.js";
+import { createAutomationTools } from "./automation-tools.js";
+import { createDraftDecisionTools } from "./draft-tools.js";
+import { createSelfTools } from "./self-tools.js";
+import { getRuntimeModel } from "./runtime-config.js";
+import { broadcast } from "./broadcast.js";
+import { sendTelegramMessage } from "./telegram.js";
+import { aggregateUsageFromResult, EMPTY_USAGE, type UsageTotals } from "./usage.js";
+
+const INTERACTION_SYSTEM = `You are Boop, a personal agent the user texts.
+
+You are a DISPATCHER, not a doer. Your job:
+1. Understand what the user wants.
+2. Decide: answer directly (quick facts, chit-chat, anything you already know) OR spawn_agent (real work that needs tools like email, calendar, web, etc.).
+3. When you spawn, give the agent a crisp, specific task — not the raw user message.
+4. When the agent returns, relay the result in YOUR voice, tightened for chat.
+
+STRICT RULE: NEVER use emojis in any message. Plain text only. No exceptions.
+
+Your only tools:
+- recall / write_memory (durable memory for this user)
+- spawn_agent (dispatches a sub-agent that CAN touch the world)
+- create_automation / list_automations / toggle_automation / delete_automation
+- list_drafts / send_draft / reject_draft
+- get_config / set_model / set_timezone / list_integrations / list_available_skills / search_composio_catalog / inspect_toolkit (self-inspection)
+
+Available skills for sub-agents: daily-briefing, quick-lookup, todo-scan. When spawning an agent, ALWAYS include the relevant skill slug in the skills parameter if the task matches — daily-briefing for daily summaries, quick-lookup for factual questions, todo-scan for reminders/tasks.
+
+You cannot answer factual questions from your own knowledge. Not allowed.
+You have NO browser, NO WebSearch, NO WebFetch, NO file access, NO APIs.
+You are not allowed to recite facts about places, events, people, prices,
+news, URLs, statistics, or anything "in the world." Your training data does
+not count as a source.
+
+Hard rule: if the user asks for information, research, a lookup, a
+recommendation that requires real-world data, a current event, a comparison,
+a tutorial, a how-to, any URL, or anything you'd be tempted to "just know" —
+spawn_agent. No exceptions. Even if you're 99% sure. The sub-agent has
+WebSearch/WebFetch and will return real citations; you don't and won't.
+
+Acknowledgment rule:
+BEFORE every spawn_agent call, you MUST call send_ack first with a short
+1-sentence message. The user otherwise sees nothing for 10-30 seconds while
+the sub-agent works. Examples of good acks:
+  "On it, one sec."
+  "Looking into your calendar."
+  "Let me check that."
+  "Searching now."
+Order: send_ack → spawn_agent → (wait) → final reply with the result.
+Skip the ack ONLY for things you'll answer in under 2 seconds (chit-chat,
+simple memory recall, single automation toggle).
+
+Memory — recall is MANDATORY before any claim about the user:
+Your context does NOT auto-load saved memories. You must call recall()
+explicitly. Conversation history is NOT memory — anything older than the
+last few turns is gone, and even visible history may not be saved.
+
+Hard rule: BEFORE making ANY statement about the user — names, contacts,
+phone numbers, addresses, schedule, preferences, projects, history, who
+they know, what they're working on — you MUST call recall() first.
+
+This applies to NEGATIVE claims TOO. Saying "I don't have a phone number
+for Alex" without first calling recall() is a CRITICAL FAILURE: that fact
+might be in memory and you'd be lying to the user. If you're about to say
+"I don't have X stored" or "I don't know that" about something user-
+specific, STOP and call recall() first.
+
+Recall is cheap. Overuse is correct. Underuse is a bug. Multiple recalls
+per turn are fine and encouraged — different segments, different angles.
+
+write_memory() — call aggressively for durable facts. Err on the side of
+saving. If the user reveals anything personal, factual, or preferential,
+write it down in the same turn.
+
+Safe to answer directly without recall (a SHORT list):
+- Greetings, acknowledgments, conversational filler ("thanks", "lol", "ok").
+- Explaining what you just did, confirming a draft, relaying a sub-agent.
+- Clarifying your own abilities or asking the user a clarifying question.
+- Anything in the same conversation turn the user JUST told you (echo
+  back is fine; persistent facts still need write_memory).
+
+Everything else about the user — SPAWN or RECALL FIRST.
+
+Never fabricate URLs, site names, "sources", statistics, news, quotes, prices,
+dates, or any external fact. "Sources: [vague site names]" is fabrication.
+
+When relaying a sub-agent's answer:
+- Pass through the Sources section the sub-agent included, VERBATIM. Don't
+  add, remove, paraphrase, or summarize URLs.
+- If the sub-agent did NOT include a Sources section, YOU DO NOT ADD ONE.
+  Do not write "Sources: Lonely Planet, etc." No exceptions.
+- You may tighten the body (shorter bullets, fewer emojis), but the URLs
+  are ground truth — don't touch them.
+
+Automations:
+When the user wants something to happen on a recurring schedule — daily,
+weekly, before/after some recurring event, anything that should fire more
+than once — use create_automation with a 5-field cron expression and a
+concrete task description for the sub-agent.
+
+Drafts:
+External actions (email, calendar event, Slack message, etc.) go through a
+draft flow — execution agents SAVE drafts; only send_draft actually commits.
+
+When the user signals they want a previously-prepared action to go through —
+ANY phrasing — call list_drafts to see what's pending, then send_draft on
+the matching ones.
+
+When the user signals they want to back out (cancel, scrap it, different
+version, never mind, etc.), call reject_draft.
+
+Never claim something was sent unless send_draft returned success.
+
+Self-inspection (no spawn needed — answer instantly):
+When the user asks about Boop itself, pick the tool by intent:
+- Wants to know what model / config / time is currently in effect → get_config
+- Wants to switch models → set_model
+- Wants to know which integrations or accounts are connected → list_integrations
+- Wondering whether some service is connectable at all → search_composio_catalog
+- Probing capabilities of a specific connected integration → inspect_toolkit
+- Telling Boop where they are or what timezone they want → set_timezone
+
+Time / timezone:
+The user has a saved timezone in get_config.userTimezone. Whenever your reply
+or a sub-agent's task depends on local time (deadlines, "today", "9am
+tomorrow", RSVP windows, scheduling, "in N hours"), call get_config first to
+read it. If userTimezone is null, the system is currently using
+timezoneFallback (the server's local zone, which may be wrong) — ASK the
+user once ("what timezone are you in?") and call set_timezone with their
+answer.
+
+Available integrations for spawn_agent: {{INTEGRATIONS}}
+
+Format: Plain text. Markdown sparingly. Keep replies under ~400 chars when you can.`;
+
+interface HandleOpts {
+  conversationId: string;
+  content: string;
+  turnTag?: string;
+  onThinking?: (chunk: string) => void;
+  kind?: "user" | "proactive";
+}
+
+function randomId(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export async function handleUserMessage(opts: HandleOpts): Promise<string> {
+  const turnId = randomId("turn");
+  const integrations = availableIntegrations();
+
+  const inboundRole = opts.kind === "proactive" ? "system" : "user";
+  await convex.mutation(api.messages.send, {
+    conversationId: opts.conversationId,
+    role: inboundRole,
+    content: opts.content,
+    turnId,
+  });
+  broadcast(opts.kind === "proactive" ? "proactive_notice" : "user_message", {
+    conversationId: opts.conversationId,
+    content: opts.content,
+  });
+
+  const memoryTools = createMemoryTools(opts.conversationId);
+  const automationTools = createAutomationTools(opts.conversationId);
+  const draftDecisionTools = createDraftDecisionTools(opts.conversationId);
+  const selfTools = createSelfTools();
+
+  const ackTool: ToolMap = {
+    send_ack: {
+      description: "Send a short acknowledgment message to the user IMMEDIATELY, before a slow operation. Use this BEFORE spawn_agent so the user knows you heard them and are working on it. Keep it to ONE short sentence (ideally under 60 chars) with tone that matches the task.",
+      parameters: {
+        message: z.string().describe("1 short sentence ack. No markdown. Emojis OK."),
+      },
+      execute: async (args) => {
+        const text = (args.message as string).trim();
+        if (!text) {
+          return { content: [{ type: "text" as const, text: "Empty ack skipped." }] };
+        }
+        if (opts.conversationId.startsWith("tg:") && opts.kind !== "proactive") {
+          const chatId = opts.conversationId.slice(3);
+          await sendTelegramMessage(chatId, text);
+        }
+        await convex.mutation(api.messages.send, {
+          conversationId: opts.conversationId,
+          role: "assistant",
+          content: text,
+          turnId,
+        });
+        broadcast("assistant_ack", {
+          conversationId: opts.conversationId,
+          content: text,
+        });
+        log(`→ ack: ${text}`);
+        return { content: [{ type: "text" as const, text: "Ack sent to user." }] };
+      },
+    },
+  };
+
+  const spawnTool: ToolMap = {
+    spawn_agent: {
+      description: "Spawn a focused sub-agent to do real work using external tools. Returns the agent's final answer. Use for anything requiring lookups, drafting, or actions in the user's integrations.",
+      parameters: {
+        task: z.string().describe("Crisp task description — what to find/draft/do, not the raw user message."),
+        integrations: z.array(z.string()).describe(`Which integrations to give the agent. Available: ${integrations.join(", ") || "(none)"}`),
+        skills: z.array(z.string()).optional().describe(`Skill names that define how the agent should approach the task. Available: ${availableSkills().join(", ") || "(none)"}`),
+        name: z.string().optional().describe("Short label for the agent."),
+      },
+      execute: async (args) => {
+        const res = await spawnExecutionAgent({
+          task: args.task as string,
+          integrations: args.integrations as string[],
+          skills: args.skills as string[] | undefined,
+          conversationId: opts.conversationId,
+          name: args.name as string | undefined,
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `[agent ${res.agentId} ${res.status}]\n\n${res.result}`,
+            },
+          ],
+        };
+      },
+    },
+  };
+
+  const history = await convex.query(api.messages.recent, {
+    conversationId: opts.conversationId,
+    limit: 10,
+  });
+  const historyBlock = history
+    .slice(0, -1)
+    .map((m: any) => `${m.role.toUpperCase()}: ${m.content}`)
+    .join("\n");
+
+  const systemPrompt = INTERACTION_SYSTEM.replace(
+    "{{INTEGRATIONS}}",
+    integrations.join(", ") || "(no integrations configured yet)",
+  );
+
+  const prompt = historyBlock
+    ? `Prior turns:\n${historyBlock}\n\nCurrent message:\n${opts.content}`
+    : opts.content;
+
+  const tag = opts.turnTag ?? turnId.slice(-6);
+  const log = (msg: string) => console.log(`[turn ${tag}] ${msg}`);
+
+  const turnStart = Date.now();
+  const requestedModel = await getRuntimeModel();
+  let reply = "";
+  let usage: UsageTotals = { ...EMPTY_USAGE };
+
+  const allTools = {
+    ...memoryTools,
+    ...spawnTool,
+    ...automationTools,
+    ...draftDecisionTools,
+    ...ackTool,
+    ...selfTools,
+  };
+
+  try {
+    const result = await generateResponse({
+      system: systemPrompt,
+      prompt,
+      tools: allTools,
+      maxSteps: 10,
+      onStep: (step) => {
+        if (step.text) {
+          reply = step.text;
+          opts.onThinking?.(step.text);
+        }
+        for (const tc of step.toolCalls) {
+          log(`tool: ${tc.name}(${JSON.stringify(tc.input).length > 90 ? JSON.stringify(tc.input).slice(0, 90) + "…" : JSON.stringify(tc.input)})`);
+        }
+      },
+    });
+    reply = result.text;
+    usage = aggregateUsageFromResult(result.usage, requestedModel);
+  } catch (err) {
+    console.error(`[turn ${tag}] query failed`, err);
+    reply = "Sorry — I hit an error processing that. Try again in a moment.";
+  }
+
+  reply = reply.trim();
+  const placeholder =
+    /^(?:\(\s*no (?:output|reply|response|content)\s*\)|no (?:output|reply|response|content))\.?$/i;
+  if (!reply || placeholder.test(reply)) {
+    console.warn(`[turn ${tag}] empty/placeholder reply (${JSON.stringify(reply)}) — using fallback`);
+    reply = "Hmm — got tangled up there. Want to try that again?";
+  }
+
+  if (usage.inputTokens > 0) {
+    log(
+      `tokens: in/out ${usage.inputTokens}/${usage.outputTokens}`,
+    );
+    await convex.mutation(api.usageRecords.record, {
+      source: "dispatcher",
+      conversationId: opts.conversationId,
+      turnId,
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheCreationTokens: usage.cacheCreationTokens,
+      costUsd: usage.costUsd,
+      durationMs: Date.now() - turnStart,
+    });
+  }
+
+  broadcast("assistant_message", { conversationId: opts.conversationId, content: reply });
+
+  if (opts.kind !== "proactive") {
+    extractAndStore({
+      conversationId: opts.conversationId,
+      userMessage: opts.content,
+      assistantReply: reply,
+      turnId,
+    }).catch((err) => console.error("[interaction] extraction error", err));
+  }
+
+  return reply;
+}
