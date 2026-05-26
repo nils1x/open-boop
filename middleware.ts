@@ -13,11 +13,11 @@ export function middleware(req: NextRequest) {
       url.pathname = "/debug/index.html";
       url.searchParams.delete("key");
       const redirect = NextResponse.redirect(url);
-      redirect.cookies.set("debug_token", key, { path: "/", maxAge: 86400, sameSite: "lax" });
+      redirect.cookies.set("debug_token", key, { path: "/", maxAge: 86400, sameSite: "lax", httpOnly: true, secure: true });
       return redirect;
     }
     const res = NextResponse.next();
-    res.cookies.set("debug_token", key, { path: "/", maxAge: 86400, sameSite: "lax" });
+    res.cookies.set("debug_token", key, { path: "/", maxAge: 86400, sameSite: "lax", httpOnly: true, secure: true });
     return res;
   }
 

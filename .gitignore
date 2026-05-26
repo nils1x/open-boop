@@ -20,7 +20,12 @@ public/debug/
 .tsbuildinfo
 .vercel
 .env.vercel
+.env.development
+.env.production
+.env.test
+.next/
 session-*.md
 PLAN.md
 *.tsbuildinfo
 debug/.vite/
+next-env.d.ts

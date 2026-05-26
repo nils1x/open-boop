@@ -26,7 +26,7 @@ function matchPath(pathname: string): { parts: string[] } {
   return { parts };
 }
 
-async function initAuth(slug: string, origin: string): Promise<string | null> {
+async function initAuth(slug: string, origin: string, opts?: { alias?: string }): Promise<{ redirectUrl: string | null; connectionId: string | null } | null> {
   // Clean up stuck connections
   const existingConns = await apiFetch("/connected_accounts?pageSize=200").catch(() => ({ items: [] }));
   for (const c of (existingConns.items ?? [])) {
@@ -51,16 +51,19 @@ async function initAuth(slug: string, origin: string): Promise<string | null> {
     }
   }
 
+  const body: Record<string, unknown> = {
+    auth_config_id: authConfigId,
+    user_id: "boop-default",
+    callback_url: origin + "/debug/close.html",
+  };
+  if (opts?.alias) body.alias = opts.alias;
+
   const result = await apiFetch("/connected_accounts/link", {
     method: "POST",
-    body: JSON.stringify({
-      auth_config_id: authConfigId,
-      user_id: "boop-default",
-      callback_url: origin + "/debug/close.html",
-    }),
+    body: JSON.stringify(body),
   });
 
-  return result.redirect_url ?? null;
+  return { redirectUrl: result.redirect_url ?? null, connectionId: result.id ?? null };
 }
 
 async function apiFetch(path: string, init?: RequestInit) {
@@ -87,7 +90,19 @@ async function apiFetch(path: string, init?: RequestInit) {
   }
 }
 
+function requireDebugAuth(req: NextRequest): NextResponse | null {
+  const password = process.env.DEBUG_PASSWORD || process.env.API_SECRET_KEY;
+  if (!password) return null;
+  const cookie = req.cookies.get("debug_token")?.value;
+  const queryKey = req.nextUrl.searchParams.get("key");
+  if (cookie === password || queryKey === password) return null;
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+}
+
 export async function GET(req: NextRequest) {
+  const auth = requireDebugAuth(req);
+  if (auth) return auth;
+
   const key = process.env.COMPOSIO_API_KEY;
   if (!key) {
     return NextResponse.json({ enabled: false, toolkits: [] });
@@ -147,7 +162,8 @@ export async function GET(req: NextRequest) {
 
       return NextResponse.json({ enabled: true, toolkits: curated });
     } catch (err: any) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
+      console.error("[composio] GET toolkits failed:", err);
+      return NextResponse.json({ error: "Failed to list toolkits" }, { status: 500 });
     }
   }
 
@@ -163,16 +179,17 @@ export async function GET(req: NextRequest) {
         })),
       });
     } catch (err: any) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
+      console.error(`[composio] GET tools for ${parts[1]} failed:`, err);
+      return NextResponse.json({ error: "Failed to list tools" }, { status: 500 });
     }
   }
 
   if (parts[0] === "auth" && parts[1] === "init") {
     const slug = req.nextUrl.searchParams.get("slug");
     if (!slug) return NextResponse.json({ error: "slug required" }, { status: 400 });
-    const redirectUrl = await initAuth(slug, new URL(req.url).origin);
-    if (!redirectUrl) return NextResponse.redirect(new URL("/debug/close.html", req.url));
-    return NextResponse.redirect(redirectUrl);
+    const result = await initAuth(slug, new URL(req.url).origin);
+    if (!result || !result.redirectUrl) return NextResponse.redirect(new URL("/debug/close.html", req.url));
+    return NextResponse.redirect(result.redirectUrl);
   }
 
   if (parts[0] === "status") {
@@ -183,6 +200,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = requireDebugAuth(req);
+  if (auth) return auth;
+
   const key = process.env.COMPOSIO_API_KEY;
   if (!key) {
     return NextResponse.json({ error: "COMPOSIO_API_KEY not set" }, { status: 503 });
@@ -193,16 +213,19 @@ export async function POST(req: NextRequest) {
   if (parts[0] === "toolkits" && parts[1] && parts[2] === "authorize") {
     try {
       const slug = parts[1];
-      const redirectUrl = await initAuth(slug, new URL(req.url).origin);
-      if (!redirectUrl) {
+      const body = await req.json().catch(() => ({}));
+      const alias = typeof body.alias === "string" ? body.alias.trim() : undefined;
+      const result = await initAuth(slug, new URL(req.url).origin, alias ? { alias } : undefined);
+      if (!result) {
         return NextResponse.json(
           { error: `Composio doesn't host a managed OAuth app for ${slug}. Set up auth config in Composio Dashboard first.`, needsAuthConfig: true, toolkit: slug, setupUrl: "https://dashboard.composio.dev" },
           { status: 409 },
         );
       }
-      return NextResponse.json({ redirectUrl, connectionId: null });
+      return NextResponse.json({ redirectUrl: result.redirectUrl, connectionId: result.connectionId });
     } catch (err: any) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
+      console.error(`[composio] authorize ${parts[1]} failed:`, err);
+      return NextResponse.json({ error: "Failed to authorize toolkit" }, { status: 500 });
     }
   }
 
@@ -215,7 +238,8 @@ export async function POST(req: NextRequest) {
       await apiFetch(`/connected_accounts/${body.connectionId}`, { method: "DELETE" });
       return NextResponse.json({ ok: true });
     } catch (err: any) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
+      console.error(`[composio] disconnect ${parts[1]} failed:`, err);
+      return NextResponse.json({ error: "Failed to disconnect toolkit" }, { status: 500 });
     }
   }
 
@@ -232,7 +256,8 @@ export async function POST(req: NextRequest) {
       });
       return NextResponse.json({ ok: true });
     } catch (err: any) {
-      return NextResponse.json({ error: String(err) }, { status: 500 });
+      console.error(`[composio] rename ${parts[1]} failed:`, err);
+      return NextResponse.json({ error: "Failed to rename connection" }, { status: 500 });
     }
   }
 

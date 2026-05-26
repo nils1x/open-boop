@@ -3,15 +3,27 @@
 import { FormEvent, useState } from "react";
 
 export default function DebugLogin() {
-  const [error] = useState(() =>
-    typeof window !== "undefined" && window.location.search.includes("key=") ? "Wrong debug key" : ""
-  );
+  const [error, setError] = useState("");
 
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
     const key = (data.get("key") as string) || "";
-    if (key) window.location.href = "/debug/?key=" + encodeURIComponent(key);
+    if (!key) return;
+    try {
+      const r = await fetch("/api/debug/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+      });
+      if (r.ok) {
+        window.location.href = "/debug/";
+      } else {
+        setError("Wrong debug key");
+      }
+    } catch {
+      setError("Network error");
+    }
   }
 
   return (

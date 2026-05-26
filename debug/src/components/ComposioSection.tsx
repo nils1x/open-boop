@@ -279,41 +279,67 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
   }, [fetchToolkits]);
 
   const connect = useCallback(
-    (slug: string) => {
+    async (slug: string) => {
       setBusy(slug);
       setNeedsAuthConfig(null);
-      const w = 600;
-      const h = 700;
-      const left = window.screenX + (window.outerWidth - w) / 2;
-      const top = window.screenY + (window.outerHeight - h) / 2;
-      const popup = window.open(
-        `/api/composio/auth/init?slug=${slug}`,
-        "composio-auth",
-        `width=${w},height=${h},left=${left},top=${top}`,
-      );
-      if (!popup) {
-        // Fallback: redirect the current page (no popup needed)
-        window.location.href = `/api/composio/auth/init?slug=${slug}`;
-        return;
-      }
-      if (authPollRef.current) clearInterval(authPollRef.current);
-      authPollRef.current = setInterval(async () => {
-        if (!popup || popup.closed) {
-          if (authPollRef.current) {
-            clearInterval(authPollRef.current);
-            authPollRef.current = null;
+      try {
+        const r = await fetch(`/api/composio/toolkits/${slug}/authorize`, { method: "POST" });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          if (err?.needsAuthConfig) {
+            setNeedsAuthConfig({
+              slug,
+              message: err.error,
+              setupUrl: err.setupUrl ?? "https://dashboard.composio.dev",
+            });
+            setBusy(null);
+            return;
           }
-          try {
-            await fetch("/api/composio/refresh", { method: "POST" });
-          } catch {
-            /* ignore */
-          }
-          await fetchToolkits();
+          showToast(`Authorize failed: ${err?.error ?? r.statusText}`);
           setBusy(null);
+          return;
         }
-      }, 800);
+        const { redirectUrl } = await r.json();
+        if (!redirectUrl) {
+          showToast("Composio did not return a redirect URL.");
+          setBusy(null);
+          return;
+        }
+        const w = 600;
+        const h = 700;
+        const left = window.screenX + (window.outerWidth - w) / 2;
+        const top = window.screenY + (window.outerHeight - h) / 2;
+        const popup = window.open(
+          redirectUrl,
+          "composio-auth",
+          `width=${w},height=${h},left=${left},top=${top}`,
+        );
+        if (!popup) {
+          window.location.href = redirectUrl;
+          return;
+        }
+        if (authPollRef.current) clearInterval(authPollRef.current);
+        authPollRef.current = setInterval(async () => {
+          if (!popup || popup.closed) {
+            if (authPollRef.current) {
+              clearInterval(authPollRef.current);
+              authPollRef.current = null;
+            }
+            try {
+              await fetch("/api/composio/refresh", { method: "POST" });
+            } catch {
+              /* ignore */
+            }
+            await fetchToolkits();
+            setBusy(null);
+          }
+        }, 800);
+      } catch (err) {
+        showToast(`Authorize failed: ${String(err)}`);
+        setBusy(null);
+      }
     },
-    [fetchToolkits],
+    [fetchToolkits, showToast],
   );
 
   const disconnect = useCallback(

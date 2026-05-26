@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
       : 0;
     return NextResponse.json({ messages: total });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error("[sse] error:", err);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }
