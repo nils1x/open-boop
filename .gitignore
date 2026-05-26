@@ -7,7 +7,7 @@ build/
 *.log
 .DS_Store
 .convex/
-convex/_generated/
+# convex/_generated/ — checked in so Vercel build doesn't need convex codegen
 data/
 *.db
 *.db-journal
@@ -15,5 +15,12 @@ data/
 *.sqlite-journal
 .vite/
 debug/dist/
+public/debug/
 .cache/
 .tsbuildinfo
+.vercel
+.env.vercel
+session-*.md
+PLAN.md
+*.tsbuildinfo
+debug/.vite/

@@ -24,9 +24,8 @@ export function useSocket(onEvent?: (e: SocketEvent) => void) {
       ws.onopen = () => setConnected(true);
       ws.onclose = () => {
         setConnected(false);
-        reconnectTimer = setTimeout(connect, 1500);
       };
-      ws.onerror = () => ws?.close();
+      ws.onerror = () => { setConnected(false); ws?.close(); };
       ws.onmessage = (evt) => {
         try {
           const parsed = JSON.parse(evt.data) as SocketEvent;

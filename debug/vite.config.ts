@@ -38,6 +38,7 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    base: "/debug/",
     build: { outDir: path.resolve(__dirname, "dist") },
   };
 });

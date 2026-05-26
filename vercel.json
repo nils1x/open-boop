@@ -1,0 +1,6 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build:debug && cp -r debug/dist public/debug && next build",
+  "installCommand": "npm install",
+  "framework": "nextjs"
+}

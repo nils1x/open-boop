@@ -262,7 +262,11 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
     try {
       const r = await fetch("/api/composio/toolkits");
       const json = (await r.json()) as ToolkitsResponse;
-      setData(json);
+      if (json && json.toolkits) {
+        setData(json);
+      } else {
+        setData({ enabled: true, toolkits: [] });
+      }
     } catch {
       setData({ enabled: false, toolkits: [] });
     } finally {
@@ -404,8 +408,9 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
   const cardBg = isDark ? "bg-slate-900/50 border-slate-800" : "bg-white border-slate-200";
   const muted = isDark ? "text-slate-500" : "text-slate-400";
 
+  const toolkits = (data?.toolkits ?? []) as Toolkit[];
   const activeCount =
-    data?.toolkits.reduce((n, t) => n + t.connections.filter((c) => c.status === "ACTIVE").length, 0) ?? 0;
+    toolkits.reduce((n, t) => n + t.connections.filter((c) => c.status === "ACTIVE").length, 0);
 
   return (
     <section>
@@ -476,7 +481,6 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
         </div>
       ) : (
         (() => {
-          const toolkits = data?.toolkits ?? [];
           const needsSetup = toolkits.filter(
             (t) => !hasActive(t) && t.authMode === "byo" && !t.hasAuthConfig,
           );

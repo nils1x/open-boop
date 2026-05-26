@@ -96,7 +96,7 @@ export function App() {
         } backdrop-blur-sm`}
       >
         <div className="flex items-center gap-3">
-          <img src="/lunagotchi.png" alt="Boop" className="w-7 h-7 rounded-lg" />
+          <img src="./lunagotchi.png" alt="Boop" className="w-7 h-7 rounded-lg" />
           <h1
             className={`text-sm font-bold tracking-wide uppercase ${
               isDark ? "text-slate-400" : "text-slate-500"
@@ -106,20 +106,17 @@ export function App() {
           </h1>
           <div
             className={`flex items-center gap-1.5 text-xs ${
-              connected ? "text-emerald-500" : "text-rose-400"
+              connected ? "text-emerald-500" : "text-slate-500"
             }`}
           >
             <span className="relative flex h-2 w-2">
-              {connected && (
-                <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 pulse-ring" />
-              )}
               <span
                 className={`relative inline-flex rounded-full h-2 w-2 ${
-                  connected ? "bg-emerald-400" : "bg-rose-400"
+                  connected ? "bg-emerald-400" : "bg-slate-600"
                 }`}
               />
             </span>
-            {connected ? "Live" : "Disconnected"}
+            {connected ? "Live" : "Static"}
           </div>
         </div>
 
@@ -210,7 +207,7 @@ export function App() {
           ))}
 
           <div className="mt-auto px-4 py-3 flex items-center gap-2">
-            <img src="/appicon.png" alt="" className="w-5 h-5 rounded" />
+            <img src="./appicon.png" alt="" className="w-5 h-5 rounded" />
             <span
               className={`text-[10px] ${isDark ? "text-slate-600" : "text-slate-400"} mono`}
             >
