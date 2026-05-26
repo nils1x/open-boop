@@ -4,7 +4,7 @@ const PASSWORD = process.env.DEBUG_PASSWORD || process.env.API_SECRET_KEY;
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (!pathname.startsWith("/debug") || pathname === "/debug/login") return NextResponse.next();
+  if (!pathname.startsWith("/debug") || pathname === "/debug/login" || pathname.startsWith("/debug/close")) return NextResponse.next();
 
   const key = req.nextUrl.searchParams.get("key") || req.cookies.get("debug_token")?.value;
   if (key && PASSWORD && key === PASSWORD) {

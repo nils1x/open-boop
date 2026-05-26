@@ -1,0 +1,15 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/chat/route": "app/api/chat/route.js",
+  "/api/agents/[id]/cancel/route": "app/api/agents/[id]/cancel/route.js",
+  "/api/agents/[id]/retry/route": "app/api/agents/[id]/retry/route.js",
+  "/api/consolidate/route": "app/api/consolidate/route.js",
+  "/api/composio/webhook/route": "app/api/composio/webhook/route.js",
+  "/api/health/route": "app/api/health/route.js",
+  "/api/composio/[...path]/route": "app/api/composio/[...path]/route.js",
+  "/api/memory/route": "app/api/memory/route.js",
+  "/api/sse/route": "app/api/sse/route.js",
+  "/api/telegram/webhook/route": "app/api/telegram/webhook/route.js",
+  "/page": "app/page.js",
+  "/debug/login/page": "app/debug/login/page.js"
+}

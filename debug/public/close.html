@@ -2,7 +2,16 @@
 <html>
 <head><meta charset="utf-8"><title>Closing...</title></head>
 <body>
-<script>window.close()</script>
+<script>
+  if (window.opener) {
+    // Was a popup — tell opener and close
+    try { window.opener.postMessage("composio-auth-done", "*"); } catch {}
+    window.close()
+  } else {
+    // Same-tab redirect — go back to dashboard
+    window.location.href = "/debug/"
+  }
+</script>
 <p>This window should close automatically. If not, close it manually.</p>
 </body>
 </html>

@@ -279,22 +279,21 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
   }, [fetchToolkits]);
 
   const connect = useCallback(
-    async (slug: string) => {
+    (slug: string) => {
       setBusy(slug);
       setNeedsAuthConfig(null);
       const w = 600;
       const h = 700;
       const left = window.screenX + (window.outerWidth - w) / 2;
       const top = window.screenY + (window.outerHeight - h) / 2;
-      // Open popup directly to the server-redirect endpoint — no async gap, no popup blocker
       const popup = window.open(
         `/api/composio/auth/init?slug=${slug}`,
         "composio-auth",
         `width=${w},height=${h},left=${left},top=${top}`,
       );
       if (!popup) {
-        showToast("Pop-up was blocked. Allow pop-ups for this site.");
-        setBusy(null);
+        // Fallback: redirect the current page (no popup needed)
+        window.location.href = `/api/composio/auth/init?slug=${slug}`;
         return;
       }
       if (authPollRef.current) clearInterval(authPollRef.current);
@@ -314,7 +313,7 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
         }
       }, 800);
     },
-    [fetchToolkits, showToast],
+    [fetchToolkits],
   );
 
   const disconnect = useCallback(

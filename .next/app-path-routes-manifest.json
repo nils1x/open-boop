@@ -1,0 +1,15 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/api/chat/route": "/api/chat",
+  "/api/agents/[id]/cancel/route": "/api/agents/[id]/cancel",
+  "/api/agents/[id]/retry/route": "/api/agents/[id]/retry",
+  "/api/consolidate/route": "/api/consolidate",
+  "/api/composio/webhook/route": "/api/composio/webhook",
+  "/api/health/route": "/api/health",
+  "/api/composio/[...path]/route": "/api/composio/[...path]",
+  "/api/memory/route": "/api/memory",
+  "/api/sse/route": "/api/sse",
+  "/api/telegram/webhook/route": "/api/telegram/webhook",
+  "/page": "/",
+  "/debug/login/page": "/debug/login"
+}
