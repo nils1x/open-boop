@@ -148,8 +148,18 @@ export async function POST(req: NextRequest) {
   if (parts[0] === "toolkits" && parts[1] && parts[2] === "authorize") {
     try {
       const body = await req.json().catch(() => ({}));
+      const slug = parts[1];
 
-      const existingConfigs = await apiFetch(`/auth_configs?toolkit=${parts[1]}`).catch(() => ({ items: [] }));
+      // Clean up any stuck non-active connections for this toolkit
+      const existingConns = await apiFetch("/connected_accounts?pageSize=200").catch(() => ({ items: [] }));
+      for (const c of (existingConns.items ?? [])) {
+        const connSlug = c.toolkit?.slug ?? c.toolkitSlug;
+        if (connSlug === slug && c.status !== "ACTIVE") {
+          await apiFetch(`/connected_accounts/${c.id}`, { method: "DELETE" }).catch(() => {});
+        }
+      }
+
+      const existingConfigs = await apiFetch(`/auth_configs?toolkit=${slug}`).catch(() => ({ items: [] }));
       let authConfigId = existingConfigs.items?.[0]?.id;
 
       if (!authConfigId) {
@@ -157,9 +167,9 @@ export async function POST(req: NextRequest) {
           const created = await apiFetch("/auth_configs", {
             method: "POST",
             body: JSON.stringify({
-              toolkit: parts[1],
+              toolkit: slug,
               type: "use_composio_managed_auth",
-              name: parts[1],
+              name: slug,
             }),
           });
           authConfigId = created.id;
@@ -167,7 +177,7 @@ export async function POST(req: NextRequest) {
           const is400 = createErr.message?.startsWith("Composio 400");
           if (is400) {
             return NextResponse.json(
-              { error: `Composio doesn't host a managed OAuth app for ${parts[1]}. Register one in the Composio Dashboard first.`, needsAuthConfig: true, toolkit: parts[1], setupUrl: "https://dashboard.composio.dev" },
+              { error: `Composio doesn't host a managed OAuth app for ${slug}. Register one in the Composio Dashboard first.`, needsAuthConfig: true, toolkit: slug, setupUrl: "https://dashboard.composio.dev" },
               { status: 409 },
             );
           }

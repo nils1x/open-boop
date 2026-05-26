@@ -282,9 +282,20 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
     async (slug: string) => {
       setBusy(slug);
       setNeedsAuthConfig(null);
+      const w = 600;
+      const h = 700;
+      const left = window.screenX + (window.outerWidth - w) / 2;
+      const top = window.screenY + (window.outerHeight - h) / 2;
+      // Open popup synchronously (before async) so browsers don't block it
+      const popup = window.open(
+        "",
+        "composio-auth",
+        `width=${w},height=${h},left=${left},top=${top}`,
+      );
       try {
         const r = await fetch(`/api/composio/toolkits/${slug}/authorize`, { method: "POST" });
         if (!r.ok) {
+          popup?.close();
           const err = await r.json().catch(() => ({}));
           if (err?.needsAuthConfig) {
             setNeedsAuthConfig({
@@ -301,19 +312,12 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
         }
         const { redirectUrl } = await r.json();
         if (!redirectUrl) {
+          popup?.close();
           showToast("Composio did not return a redirect URL.");
           setBusy(null);
           return;
         }
-        const w = 600;
-        const h = 700;
-        const left = window.screenX + (window.outerWidth - w) / 2;
-        const top = window.screenY + (window.outerHeight - h) / 2;
-        const popup = window.open(
-          redirectUrl,
-          "composio-auth",
-          `width=${w},height=${h},left=${left},top=${top}`,
-        );
+        popup!.location.href = redirectUrl;
         // Replace any prior poll (defensive — you'd have to spam Connect for this to matter).
         if (authPollRef.current) clearInterval(authPollRef.current);
         authPollRef.current = setInterval(async () => {
@@ -332,6 +336,7 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
           }
         }, 800);
       } catch (err) {
+        popup?.close();
         showToast(`Authorize failed: ${String(err)}`);
         setBusy(null);
       }
