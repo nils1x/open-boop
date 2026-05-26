@@ -287,7 +287,7 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
       const left = window.screenX + (window.outerWidth - w) / 2;
       const top = window.screenY + (window.outerHeight - h) / 2;
       // Open popup synchronously (before async) so browsers don't block it
-      const popup = window.open(
+      let popup = window.open(
         "",
         "composio-auth",
         `width=${w},height=${h},left=${left},top=${top}`,
@@ -317,7 +317,16 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
           setBusy(null);
           return;
         }
-        popup!.location.href = redirectUrl;
+        if (popup) {
+          popup.location.href = redirectUrl;
+        } else {
+          popup = window.open(redirectUrl, "composio-auth", `width=${w},height=${h},left=${left},top=${top}`);
+          if (!popup) {
+            showToast("Pop-up was blocked. Allow pop-ups for this site.");
+            setBusy(null);
+            return;
+          }
+        }
         // Replace any prior poll (defensive — you'd have to spam Connect for this to matter).
         if (authPollRef.current) clearInterval(authPollRef.current);
         authPollRef.current = setInterval(async () => {
