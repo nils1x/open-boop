@@ -176,11 +176,11 @@ export async function POST(req: NextRequest) {
       }
 
       const userId = "boop-default";
-      const redirectUrl = new URL(req.url).origin + "/debug/";
+      const callbackUrl = new URL(req.url).origin + "/debug/close.html";
       const linkBody: Record<string, any> = {
         auth_config_id: authConfigId,
         user_id: userId,
-        redirect_url: redirectUrl,
+        callback_url: callbackUrl,
       };
       if (body.alias) linkBody.alias = body.alias;
 
