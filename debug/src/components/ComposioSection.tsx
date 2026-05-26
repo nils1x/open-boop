@@ -286,69 +286,33 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
       const h = 700;
       const left = window.screenX + (window.outerWidth - w) / 2;
       const top = window.screenY + (window.outerHeight - h) / 2;
-      // Open popup synchronously (before async) so browsers don't block it
-      let popup = window.open(
-        "",
+      // Open popup directly to the server-redirect endpoint — no async gap, no popup blocker
+      const popup = window.open(
+        `/api/composio/auth/init?slug=${slug}`,
         "composio-auth",
         `width=${w},height=${h},left=${left},top=${top}`,
       );
-      try {
-        const r = await fetch(`/api/composio/toolkits/${slug}/authorize`, { method: "POST" });
-        if (!r.ok) {
-          popup?.close();
-          const err = await r.json().catch(() => ({}));
-          if (err?.needsAuthConfig) {
-            setNeedsAuthConfig({
-              slug,
-              message: err.error,
-              setupUrl: err.setupUrl ?? COMPOSIO_DASHBOARD_URL,
-            });
-            setBusy(null);
-            return;
-          }
-          showToast(`Authorize failed: ${err?.error ?? r.statusText}`);
-          setBusy(null);
-          return;
-        }
-        const { redirectUrl } = await r.json();
-        if (!redirectUrl) {
-          popup?.close();
-          showToast("Composio did not return a redirect URL.");
-          setBusy(null);
-          return;
-        }
-        if (popup) {
-          popup.location.href = redirectUrl;
-        } else {
-          popup = window.open(redirectUrl, "composio-auth", `width=${w},height=${h},left=${left},top=${top}`);
-          if (!popup) {
-            showToast("Pop-up was blocked. Allow pop-ups for this site.");
-            setBusy(null);
-            return;
-          }
-        }
-        // Replace any prior poll (defensive — you'd have to spam Connect for this to matter).
-        if (authPollRef.current) clearInterval(authPollRef.current);
-        authPollRef.current = setInterval(async () => {
-          if (!popup || popup.closed) {
-            if (authPollRef.current) {
-              clearInterval(authPollRef.current);
-              authPollRef.current = null;
-            }
-            try {
-              await fetch("/api/composio/refresh", { method: "POST" });
-            } catch {
-              /* ignore */
-            }
-            await fetchToolkits();
-            setBusy(null);
-          }
-        }, 800);
-      } catch (err) {
-        popup?.close();
-        showToast(`Authorize failed: ${String(err)}`);
+      if (!popup) {
+        showToast("Pop-up was blocked. Allow pop-ups for this site.");
         setBusy(null);
+        return;
       }
+      if (authPollRef.current) clearInterval(authPollRef.current);
+      authPollRef.current = setInterval(async () => {
+        if (!popup || popup.closed) {
+          if (authPollRef.current) {
+            clearInterval(authPollRef.current);
+            authPollRef.current = null;
+          }
+          try {
+            await fetch("/api/composio/refresh", { method: "POST" });
+          } catch {
+            /* ignore */
+          }
+          await fetchToolkits();
+          setBusy(null);
+        }
+      }, 800);
     },
     [fetchToolkits, showToast],
   );

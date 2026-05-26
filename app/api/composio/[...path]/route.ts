@@ -26,6 +26,43 @@ function matchPath(pathname: string): { parts: string[] } {
   return { parts };
 }
 
+async function initAuth(slug: string, origin: string): Promise<string | null> {
+  // Clean up stuck connections
+  const existingConns = await apiFetch("/connected_accounts?pageSize=200").catch(() => ({ items: [] }));
+  for (const c of (existingConns.items ?? [])) {
+    const connSlug = c.toolkit?.slug ?? c.toolkitSlug;
+    if (connSlug === slug && c.status !== "ACTIVE") {
+      await apiFetch(`/connected_accounts/${c.id}`, { method: "DELETE" }).catch(() => {});
+    }
+  }
+
+  const existingConfigs = await apiFetch(`/auth_configs?toolkit=${slug}`).catch(() => ({ items: [] }));
+  let authConfigId = existingConfigs.items?.[0]?.id;
+
+  if (!authConfigId) {
+    try {
+      const created = await apiFetch("/auth_configs", {
+        method: "POST",
+        body: JSON.stringify({ toolkit: slug, type: "use_composio_managed_auth", name: slug }),
+      });
+      authConfigId = created.id;
+    } catch {
+      return null;
+    }
+  }
+
+  const result = await apiFetch("/connected_accounts/link", {
+    method: "POST",
+    body: JSON.stringify({
+      auth_config_id: authConfigId,
+      user_id: "boop-default",
+      callback_url: origin + "/debug/close.html",
+    }),
+  });
+
+  return result.redirect_url ?? null;
+}
+
 async function apiFetch(path: string, init?: RequestInit) {
   const key = process.env.COMPOSIO_API_KEY;
   if (!key) throw new Error("COMPOSIO_API_KEY not set");
@@ -130,6 +167,14 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  if (parts[0] === "auth" && parts[1] === "init") {
+    const slug = req.nextUrl.searchParams.get("slug");
+    if (!slug) return NextResponse.json({ error: "slug required" }, { status: 400 });
+    const redirectUrl = await initAuth(slug, new URL(req.url).origin);
+    if (!redirectUrl) return NextResponse.redirect(new URL("/debug/close.html", req.url));
+    return NextResponse.redirect(redirectUrl);
+  }
+
   if (parts[0] === "status") {
     return NextResponse.json({ enabled: true });
   }
@@ -147,62 +192,15 @@ export async function POST(req: NextRequest) {
 
   if (parts[0] === "toolkits" && parts[1] && parts[2] === "authorize") {
     try {
-      const body = await req.json().catch(() => ({}));
       const slug = parts[1];
-
-      // Clean up any stuck non-active connections for this toolkit
-      const existingConns = await apiFetch("/connected_accounts?pageSize=200").catch(() => ({ items: [] }));
-      for (const c of (existingConns.items ?? [])) {
-        const connSlug = c.toolkit?.slug ?? c.toolkitSlug;
-        if (connSlug === slug && c.status !== "ACTIVE") {
-          await apiFetch(`/connected_accounts/${c.id}`, { method: "DELETE" }).catch(() => {});
-        }
+      const redirectUrl = await initAuth(slug, new URL(req.url).origin);
+      if (!redirectUrl) {
+        return NextResponse.json(
+          { error: `Composio doesn't host a managed OAuth app for ${slug}. Set up auth config in Composio Dashboard first.`, needsAuthConfig: true, toolkit: slug, setupUrl: "https://dashboard.composio.dev" },
+          { status: 409 },
+        );
       }
-
-      const existingConfigs = await apiFetch(`/auth_configs?toolkit=${slug}`).catch(() => ({ items: [] }));
-      let authConfigId = existingConfigs.items?.[0]?.id;
-
-      if (!authConfigId) {
-        try {
-          const created = await apiFetch("/auth_configs", {
-            method: "POST",
-            body: JSON.stringify({
-              toolkit: slug,
-              type: "use_composio_managed_auth",
-              name: slug,
-            }),
-          });
-          authConfigId = created.id;
-        } catch (createErr: any) {
-          const is400 = createErr.message?.startsWith("Composio 400");
-          if (is400) {
-            return NextResponse.json(
-              { error: `Composio doesn't host a managed OAuth app for ${slug}. Register one in the Composio Dashboard first.`, needsAuthConfig: true, toolkit: slug, setupUrl: "https://dashboard.composio.dev" },
-              { status: 409 },
-            );
-          }
-          throw createErr;
-        }
-      }
-
-      const userId = "boop-default";
-      const callbackUrl = new URL(req.url).origin + "/debug/close.html";
-      const linkBody: Record<string, any> = {
-        auth_config_id: authConfigId,
-        user_id: userId,
-        callback_url: callbackUrl,
-      };
-      if (body.alias) linkBody.alias = body.alias;
-
-      const result = await apiFetch("/connected_accounts/link", {
-        method: "POST",
-        body: JSON.stringify(linkBody),
-      });
-
-      return NextResponse.json({
-        redirectUrl: result.redirect_url,
-        connectionId: result.connected_account_id,
-      });
+      return NextResponse.json({ redirectUrl, connectionId: null });
     } catch (err: any) {
       return NextResponse.json({ error: String(err) }, { status: 500 });
     }
