@@ -8,13 +8,16 @@ export function middleware(req: NextRequest) {
 
   const key = req.nextUrl.searchParams.get("key") || req.cookies.get("debug_token")?.value;
   if (key && PASSWORD && key === PASSWORD) {
-    const res = NextResponse.next();
-    res.cookies.set("debug_token", key, { path: "/", maxAge: 86400, sameSite: "lax" });
     if (req.nextUrl.searchParams.has("key")) {
       const url = req.nextUrl.clone();
+      url.pathname = "/debug/index.html";
       url.searchParams.delete("key");
-      return NextResponse.redirect(url);
+      const redirect = NextResponse.redirect(url);
+      redirect.cookies.set("debug_token", key, { path: "/", maxAge: 86400, sameSite: "lax" });
+      return redirect;
     }
+    const res = NextResponse.next();
+    res.cookies.set("debug_token", key, { path: "/", maxAge: 86400, sameSite: "lax" });
     return res;
   }
 
