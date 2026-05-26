@@ -27,35 +27,42 @@ function matchPath(pathname: string): { parts: string[] } {
 }
 
 async function initAuth(slug: string, origin: string, opts?: { alias?: string }): Promise<{ redirectUrl: string | null; connectionId: string | null } | null> {
-  // Clean up stuck connections
-  const existingConns = await apiFetch("/connected_accounts?pageSize=200").catch(() => ({ items: [] }));
+  // Clean up stuck connections and stale auth configs
+  const [existingConns, existingConfigs] = await Promise.all([
+    apiFetch("/connected_accounts?pageSize=200").catch(() => ({ items: [] })),
+    apiFetch(`/auth_configs?toolkit=${slug}`).catch(() => ({ items: [] })),
+  ]);
   for (const c of (existingConns.items ?? [])) {
     const connSlug = c.toolkit?.slug ?? c.toolkitSlug;
     if (connSlug === slug && c.status !== "ACTIVE") {
       await apiFetch(`/connected_accounts/${c.id}`, { method: "DELETE" }).catch(() => {});
     }
   }
-
-  const existingConfigs = await apiFetch(`/auth_configs?toolkit=${slug}`).catch(() => ({ items: [] }));
-  let authConfigId = existingConfigs.items?.[0]?.id;
-
-  if (!authConfigId) {
-    try {
-      const created = await apiFetch("/auth_configs", {
-        method: "POST",
-        body: JSON.stringify({ toolkit: slug, type: "use_composio_managed_auth", name: slug }),
-      });
-      authConfigId = created.id;
-    } catch {
-      return null;
-    }
+  for (const cfg of (existingConfigs.items ?? [])) {
+    await apiFetch(`/auth_configs/${cfg.id}`, { method: "DELETE" }).catch(() => {});
   }
+
+  let authConfigId: string | null = null;
+  try {
+    const created = await apiFetch("/auth_configs", {
+      method: "POST",
+      body: JSON.stringify({ toolkit: slug, type: "use_composio_managed_auth", name: slug }),
+    });
+    authConfigId = created.id;
+  } catch {
+    return null;
+  }
+
+  const activeCount = (existingConns.items ?? []).filter(
+    (c: any) => (c.toolkit?.slug ?? c.toolkitSlug) === slug && c.status === "ACTIVE",
+  ).length;
 
   const body: Record<string, unknown> = {
     auth_config_id: authConfigId,
     user_id: "boop-default",
     callback_url: origin + "/debug/close.html",
   };
+  if (activeCount > 0) body.allow_multiple = true;
   if (opts?.alias) body.alias = opts.alias;
 
   const result = await apiFetch("/connected_accounts/link", {
