@@ -1,4 +1,5 @@
 import { Bot, type Context } from "grammy";
+import { verifyTelegramSecret } from "./lib/auth.js";
 import { handleUserMessage } from "./interaction-agent.js";
 import { broadcast } from "./broadcast.js";
 import { api } from "../convex/_generated/api.js";
@@ -69,6 +70,8 @@ export function createTelegramBot(): Bot | null {
 
   bot.on("message", async (ctx: Context) => {
     if (!ctx.message || !ctx.message.text) return;
+    const secretErr = verifyTelegramSecret(ctx);
+    if (secretErr) return;
 
     const userId = ctx.from?.id;
     if (allowedUserId && userId !== allowedUserId) {

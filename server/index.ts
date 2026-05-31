@@ -1,5 +1,7 @@
 import "./env-setup.js";
+import { requireApiAuth } from "./lib/auth.js";
 import express from "express";
+app.use(requireApiAuth);
 import cors from "cors";
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";

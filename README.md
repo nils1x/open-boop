@@ -1,110 +1,60 @@
-# Boop — Vercel Deployment
+# open-boop
 
-Telegram-based personal agent running entirely on **free tiers**: Vercel (serverless) + Convex (cloud database).
+> **Note: Based on [boop-agent](https://github.com/raroque/boop-agent) by [@raroque](https://github.com/raroque)**
 
-## Architecture
+An iMessage-based personal agent that runs locally with Claude Code or Codex/ChatGPT.
 
-```
-Telegram  →  Vercel API route  →  Convex action (agent loop)  →  Telegram API (reply)
-                                    │
-                                    ├── Cron: automations (30s)
-                                    ├── Cron: heartbeat (60s)
-                                    ├── Cron: memory clean (6h)
-                                    └── Cron: consolidation (24h)
-```
+## What it does
 
-### Key differences from the original
+- iMessage in/out via Sendblue (typing indicators, webhook dedup)
+- Dispatcher + workers: lean interaction agent spawns focused sub-agents
+- Multi-provider support: Claude (recommended), Codex, OpenAI/ChatGPT
+- 1000+ integrations via Composio (Gmail, Slack, GitHub, Linear, Notion, etc.)
+- Tiered memory (short/long/permanent) with optional vector search
+- WebSocket streaming via SSE + WS
 
-| Original (boop-agent) | Vercel (boop-vercel) |
-|-----------------------|----------------------|
-| Express server (persistent process) | Vercel serverless functions |
-| Telegram long-polling | Telegram webhook |
-| In-process background loops | Convex cron jobs |
-| WebSocket for debug dashboard | Server-Sent Events (polling Convex) |
-| Agent loop in server code | Agent loop in Convex action (10 min timeout) |
-
-## Quick Start
-
-### 1. Deploy Convex
+## Quick start
 
 ```bash
-npx convex dev
-# This creates a Convex project and populates CONVEX_URL
+npx convex dev &
+npm run dev
 ```
 
-### 2. Deploy to Vercel
+## Environment configuration
+
+Copy .env.example to .env.local and fill required values.
+
+## Development
 
 ```bash
-# Set environment variables in Vercel:
-# - CONVEX_URL (from step 1)
-# - OPENCODE_API_KEY
-# - TELEGRAM_BOT_TOKEN
-# - TELEGRAM_USER_ID
-
-vercel --prod
-# Or push to GitHub and connect via Vercel dashboard
+npm install
+npm run dev
+npm run build
+npm run preview
 ```
 
-### 3. Set Telegram Webhook
+## API authentication
 
-```bash
-VERCEL_URL=your-project.vercel.app \
-TELEGRAM_BOT_TOKEN=your_token \
-bun scripts/setup-webhook.ts
-```
+All routes except the Telegram webhook require:
+Authorization: Bearer <API_SECRET_KEY>
+If API_SECRET_KEY is not set, server runs in permissive/dev mode.
 
-### 4. Test
+The Telegram webhook verifies X-Telegram-Bot-Api-Secret-Token against API_SECRET_KEY.
 
-```bash
-curl -X POST https://your-project.vercel.app/api/chat \
-  -H 'Content-Type: application/json' \
-  -d '{"conversationId":"test","content":"hello"}'
-```
+## Security
 
-## Environment Variables
+- No API keys, tokens, or secrets are hardcoded — all from environment variables
+- Bearer token authentication required for all HTTP routes
+- Telegram webhook secret verification prevents unauthorized requests
+- See OPEN_SOURCE_READY.md for readiness checklist
+- See OPEN_SOURCE_EXPERTISE.txt for security & licensing analysis
 
-All set in Vercel project settings:
+## What stays private (not in open source)
 
-| Variable | Required | Notes |
-|----------|----------|-------|
-| `CONVEX_URL` | yes | From `npx convex dev` |
-| `OPENCODE_API_KEY` | yes | Or `LLM_API_KEY` for other providers |
-| `TELEGRAM_BOT_TOKEN` | yes | From @BotFather |
-| `TELEGRAM_USER_ID` | yes | Your numeric Telegram user ID |
-| `LLM_MODEL` | no | Default: `deepseek-v4-flash-free` |
-| `COMPOSIO_API_KEY` | optional | Enables integrations |
-| `APPLE_EMAIL` | optional | iCloud CalDAV |
-| `APPLE_APP_PASSWORD` | optional | iCloud app-specific password |
+- .env.local with real API keys
+- Debug dashboard source (app functionality)
+- Runtime credentials and secrets
 
-## API Endpoints
+## License
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/telegram/webhook` | POST | Telegram webhook receiver |
-| `/api/chat` | POST | Chat endpoint for testing |
-| `/api/health` | GET | Health check |
-| `/api/sse` | GET | Server-Sent Events for live updates |
-| `/api/consolidate` | POST | Trigger manual consolidation |
-| `/api/composio/*` | GET/POST | Composio proxy routes |
-| `/api/memory/*` | GET/POST | Memory management routes |
-| `/api/agents/*/cancel` | POST | Cancel a running agent |
-| `/api/agents/*/retry` | POST | Retry a failed agent |
-
-## Limitations
-
-- **Vercel free tier**: 10s timeout per serverless function. The agent loop runs in Convex actions (10 min timeout), so this is not an issue.
-- **Convex cron**: Minimum interval is 30 seconds. Automations check every 30s.
-- **SSE polling**: The debug dashboard polls Convex every 2s for live updates (not real-time WebSocket).
-- **Agent loop**: Simplified version in Convex action. Full agent loop with all tools requires the original server code.
-
-## Debug Dashboard
-
-The original debug dashboard (`debug/`) can be built as a static site and deployed separately:
-
-```bash
-cd debug
-npm run build:debug
-# Deploy debug/dist to Vercel as a static site
-```
-
-Update the dashboard's SSE endpoint to point to your Vercel deployment.
+Based on the original boop-agent by @raroque, licensed under MIT.
